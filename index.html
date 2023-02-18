@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>GPT match-3</title>
+
+    <style>
+        :root {
+            --boardSz: 320px;
+            --sqSize: calc(var(--boardSz) / 8);
+        }
+
+        body {
+            background-color: #f2f2f2;
+        }
+
+        #board {
+            margin: 50px auto;
+            width: var(--boardSz);
+            height: var(--boardSz);
+            /*border: 1px solid #666;*/
+            display: flex;
+            flex-direction: column;
+        }
+
+        .row {
+            /*width: 100%;*/
+            display: flex;
+        }
+
+        .gem {
+            width: var(--sqSize);
+            height: var(--sqSize);
+            margin: 1%;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .gem:hover {
+            transform: scale(1.1);
+        }
+
+        .gem.active {
+            transform: scale(1.1);
+            border: 3px solid black;
+        }
+
+        .red {
+            background-color: #f00;
+        }
+
+        .green {
+            background-color: #0f0;
+        }
+
+        .blue {
+            background-color: #00f;
+        }
+
+        .yellow {
+            background-color: #ff0;
+        }
+
+        .purple {
+            background-color: #f0f;
+        }
+
+        .row:after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+
+    </style>
+
+</head>
+<body>
+
+<div id="board">
+
+</div>
+
+<script>
+    const DEBUG = true;
+
+    function cloneInstance(instance) {
+        return Object.assign(Object.create(Object.getPrototypeOf(instance)), instance)
+    }
+
+    class Board {
+
+        constructor(width = 8, height = 8) {
+            this._selected = null;
+            this._board = [];
+            this._width = width;
+            this._height = height
+            this.initBoard();
+
+            if (DEBUG) {
+                console.log(this.board)
+            }
+        }
+
+        get board() {
+            return this._board;
+        }
+
+        set selected(coords) {
+            if(coords === null){
+                this._selected = null;
+                return;
+            }
+            this._selected = this.board[coords.y][coords.x];
+        }
+
+        get selected() {
+            return this._selected;
+        }
+
+        initBoard() {
+            for (let y = 0; y < this._height; y++) {
+                let row = [];
+                for (let x = 0; x < this._width; x++) {
+                    row.push(new Gem(x, y));
+                }
+                this._board.push(row);
+            }
+
+            this.collapse();
+
+        }
+
+        checkMatches() {
+            let matches = [];
+
+            const checkVertical = (y, x) => {
+                let arr = [];
+                for (let i = x; i < this._width; i++) {
+                    if (this.board[y][x]?.type === this.board[y][i]?.type) {
+                        arr.push(this.board[y][i]);
+                    } else {
+                        break;
+                    }
+                }
+                return arr;
+            }
+
+            const checkHorizontal = (y, x) => {
+                let arr = [];
+                for (let i = y; i < this._height; i++) {
+                    if (this.board[y][x]?.type === this.board[i][x]?.type) {
+                        arr.push(this.board[i][x]);
+                    } else {
+                        break;
+                    }
+                }
+                return arr;
+            }
+
+            // Check for horizontal matches
+            for (let y = 0; y < this._height; y++) {
+                for (let x = 0; x < this._width; x++) {
+                    let compare = checkHorizontal(y, x);
+                    if (compare.length > 2) {
+                        matches = [...matches, ...compare];
+                    }
+                    compare = checkVertical(y, x);
+                    if (compare.length > 2) {
+                        matches = [...matches, ...compare];
+                    }
+                }
+            }
+
+            return matches.filter((g, i, array) => array.indexOf(g) === i);
+        }
+
+        collapseBoard(matches) {
+            //Убрали все совпадающие гемы
+            if (matches.length) {
+                for (let y = this._height - 1; y >= 0; y--) {
+                    for (let x = 0; x < this._width; x++) {
+                        matches.forEach(g => {
+                            if (this.board[y][x]?.coords.x === g?.coords.x && this.board[y][x]?.coords.y === g?.coords.y) {
+                                this.board[y][x] = null;
+                            }
+                        })
+                    }
+                }
+            }
+
+            //Спустили верхние гемы на 1
+            for (let y = this._height - 1; y > 0; y--) {
+                for (let x = 0; x < this._width; x++) {
+                    if (this.board[y][x] === null) {
+                        let i = y;
+                        while (this.board[y][x] === null && i--) {
+                            this.board[y][x] = this.board[i][x];
+                            if (this.board[y][x] !== null) {
+
+                                if (DEBUG) {
+                                    this.board[y][x].lastPosition = {...this.board[y][x].coords, method: 'collapse'}
+                                }
+
+                                this.board[y][x].coords = {x: x, y: y}
+                                this.board[i][x] = null;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Заполнили верхнюю строку
+            for (let x = 0; x < this._width; x++) {
+                if (this.board[0][x] === null) {
+                    this.board[0][x] = new Gem(0, x);
+                }
+            }
+
+            //Рекурсия на случай пустых клеток
+            for (let y = this._height - 1; y > 0; y--) {
+                for (let x = 0; x < this._width; x++) {
+                    if (this.board[y][x] === null) {
+                        this.collapseBoard([]);
+                    }
+                }
+            }
+        }
+
+        tryDoMove(from, to) {
+
+            if (
+                (from.x === to.x && from.y === to.y) ||
+                (from.y + 1 < to.y || from.y - 1 > to.y) ||
+                (from.x + 1 < to.x || from.x - 1 > to.x)
+            ) {
+                this._selected = null;
+
+                return false;
+            }
+
+            const oldStateBoard = cloneInstance(this.board);
+
+            let tmpGem = cloneInstance(this.board[to.y][to.x])
+
+            this.board[to.y][to.x] = cloneInstance(this.board[from.y][from.x])
+            this.board[from.y][from.x] = cloneInstance(tmpGem)
+
+            this.board[to.y][to.x].coords = to;
+            this.board[from.y][from.x].coords = from;
+
+            if (DEBUG) {
+                this.board[to.y][to.x].lastPostion = {...from, method: 'trydomove'};
+                this.board[from.y][from.x].lastPosition = {...to, method: 'trydomove'};
+            }
+
+            this._selected = null;
+
+            let matches = this.checkMatches()
+            if (!matches.length) {
+                this._board = cloneInstance(oldStateBoard);
+                return false;
+            }
+
+            this.collapseBoard(matches);
+            return true;
+
+        }
+
+        collapse() {
+            let matches = this.checkMatches();
+            while (matches.length) {
+                this.collapseBoard(matches);
+                matches = this.checkMatches()
+            }
+        }
+    }
+
+    class Gem {
+
+        constructor(x, y) {
+            this._y = y;
+            this._x = x;
+            const types = ['blue', 'red', 'yellow', 'green'];
+            this._type = types[Math.floor(Math.random() * types.length)];
+        }
+
+        get type() {
+            return this._type;
+        }
+
+        set coords(coords) {
+            this._y = coords.y;
+            this._x = coords.x;
+
+        }
+
+        get coords() {
+            return {x: this._x, y: this._y};
+        }
+
+    }
+
+    const board = new Board()
+
+    function render(board, renderer = 0) {
+        console.log({renderer})
+        const boardElement = document.getElementById('board');
+
+        boardElement.innerHTML = '';
+
+        board.board.forEach(line => {
+            let lineElement = document.createElement('div')
+            lineElement.classList.add('row');
+            line.forEach(gem => {
+                let gemElement = document.createElement('div');
+                gemElement.classList.add(`gem`);
+                gemElement.classList.add(gem.type);
+                gemElement.dataset.coords = JSON.stringify(gem.coords)
+
+                if (DEBUG) {
+                    let hint = document.createElement('p');
+                    hint.innerHTML = `${gem.coords.y}/${gem.coords.x}`
+                    gemElement.appendChild(hint);
+                }
+                gemElement.addEventListener('click', clickGem);
+
+                lineElement.appendChild(gemElement);
+            })
+            boardElement.appendChild(lineElement);
+        });
+
+        function clickGem(event) {
+            event.stopPropagation();
+            const target = event.target.classList.contains('gem') ? event.target : event.target.closest('.gem');
+            const coords = JSON.parse(target.dataset.coords);
+            console.log(target);
+            if (board.selected == null) {
+                board.selected = coords;
+                target.classList.add('active');
+                return;
+            }
+            if (board.selected?.coords.x !== coords.x || board.selected?.coords.y !== coords.y) {
+                if (board.tryDoMove(board.selected.coords, coords)) {
+                    render(board, ++renderer);
+                }
+            }
+            if (board.selected?.coords.x === coords.x && board.selected?.coords.y === coords.y) {
+                console.log('equal')
+                board.selected = null;
+            }
+            if (board.selected === null){
+                boardElement.querySelector('.row .gem').classList.remove('active')
+
+            }
+        }
+
+    }
+
+    render(board);
+</script>
+</body>
+</html>
